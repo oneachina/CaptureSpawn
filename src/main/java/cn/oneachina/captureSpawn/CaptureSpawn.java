@@ -135,8 +135,17 @@ public final class CaptureSpawn extends JavaPlugin {
     }
 
     public void sendDebug(Player player, String message) {
-        if (isDebugMode(player)) {
-            player.sendMessage(Component.text( "[CaptureSpawn] [Debug] " + message, NamedTextColor.GRAY));
+        if (player == null || message == null || !isDebugMode(player)) {
+            return;
         }
+        if (schedulerFacade != null) {
+            schedulerFacade.runOnEntity(player, () -> {
+                if (player.isOnline() && isDebugMode(player)) {
+                    player.sendMessage(Component.text("[CaptureSpawn] [Debug] " + message, NamedTextColor.GRAY));
+                }
+            });
+            return;
+        }
+        player.sendMessage(Component.text("[CaptureSpawn] [Debug] " + message, NamedTextColor.GRAY));
     }
 }

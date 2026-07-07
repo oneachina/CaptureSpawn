@@ -28,9 +28,16 @@ public final class ProtectionHooks {
         if (player == null || entity == null) {
             return false;
         }
+        return canCapture(player, entity.getLocation(), requireBuild);
+    }
+
+    public static boolean canCapture(Player player, Location location, boolean requireBuild) {
+        if (player == null || location == null) {
+            return false;
+        }
         Boolean res = residenceAllows(
                 player,
-                entity.getLocation(),
+                location,
                 requireBuild ? "protection.residence.capture-build-flags" : "protection.residence.capture-interact-flags",
                 "protection.residence.custom.capture-flag"
         );
