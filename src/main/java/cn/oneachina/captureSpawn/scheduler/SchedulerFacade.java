@@ -50,8 +50,14 @@ public final class SchedulerFacade {
         long safeDelay = Math.max(0L, delayTicks);
         long safePeriod = Math.max(1L, periodTicks);
         if (folia) {
+            long foliaDelay = Math.max(1L, safeDelay);
             final ScheduledHandle[] handleRef = new ScheduledHandle[1];
-            ScheduledTask scheduled = plugin.getServer().getGlobalRegionScheduler().runAtFixedRate(plugin, task -> tick.accept(handleRef[0]), safeDelay, safePeriod);
+            ScheduledTask scheduled = plugin.getServer().getGlobalRegionScheduler().runAtFixedRate(
+                    plugin,
+                    task -> tick.accept(handleRef[0]),
+                    foliaDelay,
+                    safePeriod
+            );
             handleRef[0] = wrap(scheduled);
             return handleRef[0];
         }
@@ -104,8 +110,15 @@ public final class SchedulerFacade {
         long safeDelay = Math.max(0L, delayTicks);
         long safePeriod = Math.max(1L, periodTicks);
         if (folia) {
+            long foliaDelay = Math.max(1L, safeDelay);
             final ScheduledHandle[] handleRef = new ScheduledHandle[1];
-            ScheduledTask scheduled = entity.getScheduler().runAtFixedRate(plugin, task -> tick.accept(handleRef[0]), null, safeDelay, safePeriod);
+            ScheduledTask scheduled = entity.getScheduler().runAtFixedRate(
+                    plugin,
+                    task -> tick.accept(handleRef[0]),
+                    null,
+                    foliaDelay,
+                    safePeriod
+            );
             handleRef[0] = wrap(scheduled);
             return handleRef[0];
         }
