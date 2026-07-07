@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'cn.oneachina'
-version = '0.2.2'
+version = '0.2.3'
 
 repositories {
     mavenCentral()
@@ -25,9 +25,9 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:26.1.2.build.+")
+    compileOnly("io.papermc.paper:paper-api:26.1.2.build.74-stable")
     compileOnly("de.tr7zw:item-nbt-api-plugin:2.15.7")
-    compileOnly("com.github.retrooper:packetevents-spigot:2.12.1")
+    compileOnly("com.github.retrooper:packetevents-spigot:2.12.2")
     compileOnly("com.github.Zrips:Residence:6.0.0.1") { transitive = false }
 }
 
@@ -36,7 +36,7 @@ tasks {
         minecraftVersion("26.1.2")
         downloadPlugins {
             modrinth ("nbtapi", "2.15.7")
-            modrinth ("packetevents", "2.12.1+spigot")
+            modrinth ("packetevents", "2.12.2+spigot")
             modrinth("viaversion", "5.9.0")
             modrinth("viabackwards", "5.9.0")
         }

@@ -1,7 +1,8 @@
 package cn.oneachina.captureSpawn.logging;
 
-import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
+import cn.oneachina.captureSpawn.scheduler.ScheduledHandle;
+import cn.oneachina.captureSpawn.scheduler.SchedulerFacade;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -21,11 +22,13 @@ public final class BallLogService {
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private final Plugin plugin;
+    private final SchedulerFacade scheduler;
     private final BlockingQueue<BallLogEntry> queue;
-    private int taskId = -1;
+    private ScheduledHandle flushTask;
 
-    public BallLogService(Plugin plugin) {
+    public BallLogService(Plugin plugin, SchedulerFacade scheduler) {
         this.plugin = plugin;
+        this.scheduler = scheduler;
         int maxQueue = Math.max(1000, plugin.getConfig().getInt("logging.max-queue", 10000));
         this.queue = new LinkedBlockingQueue<>(maxQueue);
     }
@@ -35,13 +38,13 @@ public final class BallLogService {
             return;
         }
         int interval = Math.max(1, plugin.getConfig().getInt("logging.flush-interval-ticks", 20));
-        this.taskId = Bukkit.getScheduler().runTaskTimerAsynchronously(plugin, this::flushOnce, interval, interval).getTaskId();
+        this.flushTask = scheduler.runAsyncTimer(interval, interval, ignored -> flushOnce());
     }
 
     public void stop() {
-        if (taskId != -1) {
-            Bukkit.getScheduler().cancelTask(taskId);
-            taskId = -1;
+        if (flushTask != null) {
+            flushTask.cancel();
+            flushTask = null;
         }
         flushOnce();
     }

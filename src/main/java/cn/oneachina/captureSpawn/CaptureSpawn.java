@@ -16,6 +16,7 @@ import cn.oneachina.captureSpawn.logging.BallLogService;
 import cn.oneachina.captureSpawn.nbt.NbtApiBridge;
 import cn.oneachina.captureSpawn.protection.ProtectionHooks;
 import cn.oneachina.captureSpawn.protection.ResidenceFlagListener;
+import cn.oneachina.captureSpawn.scheduler.SchedulerFacade;
 import cn.oneachina.captureSpawn.throwing.BallThrower;
 import cn.oneachina.captureSpawn.throwing.PacketEventsThrowListener;
 import net.kyori.adventure.text.Component;
@@ -35,6 +36,7 @@ public final class CaptureSpawn extends JavaPlugin {
     private NbtApiBridge nbtApiBridge;
     private PacketListenerCommon packetEventsThrowListener;
     private BallLogService logService;
+    private SchedulerFacade schedulerFacade;
     public static CaptureSpawn instance;
 
     private final Set<UUID> debugPlayers = new HashSet<>();
@@ -47,7 +49,8 @@ public final class CaptureSpawn extends JavaPlugin {
         this.keys = new Keys(this);
         this.itemFactory = new ItemFactory(this, keys);
         this.nbtApiBridge = new NbtApiBridge();
-        this.logService = new BallLogService(this);
+        this.schedulerFacade = new SchedulerFacade(this);
+        this.logService = new BallLogService(this, schedulerFacade);
         this.logService.start();
 
         if (getCommand("capturespawn") != null) {
@@ -91,16 +94,16 @@ public final class CaptureSpawn extends JavaPlugin {
         this.emptyBallRecipeKey = recipeManager.registerEmptyBallRecipe();
 
         PluginManager pm = getServer().getPluginManager();
-        pm.registerEvents(new ResidenceFlagListener(this), this);
+        pm.registerEvents(new ResidenceFlagListener(this, schedulerFacade), this);
         pm.registerEvents(new CraftPermissionListener(this, emptyBallRecipeKey), this);
         BallItemService ballItemService = new BallItemService(keys);
         pm.registerEvents(new BallBlockPlaceListener(this, ballItemService), this);
-        pm.registerEvents(new BallDropReleaseListener(this, ballItemService, itemFactory, nbtApiBridge, logService), this);
+        pm.registerEvents(new BallDropReleaseListener(this, ballItemService, itemFactory, nbtApiBridge, logService, schedulerFacade), this);
         EntityInfoFormatter formatter = new EntityInfoFormatter();
         String mode = getConfig().getString("interaction-mode", "THROW");
         if (mode.equalsIgnoreCase("THROW")) {
-            BallThrower thrower = new BallThrower(this, ballItemService, itemFactory, nbtApiBridge, formatter, logService);
-            this.packetEventsThrowListener = new PacketEventsThrowListener(this, thrower, ballItemService);
+            BallThrower thrower = new BallThrower(this, ballItemService, itemFactory, nbtApiBridge, formatter, logService, schedulerFacade);
+            this.packetEventsThrowListener = new PacketEventsThrowListener(this, thrower, ballItemService, schedulerFacade);
             PacketEvents.getAPI().getEventManager().registerListener(packetEventsThrowListener);
         } else {
             pm.registerEvents(new DirectInteractListener(this, ballItemService, itemFactory, nbtApiBridge, formatter, logService), this);

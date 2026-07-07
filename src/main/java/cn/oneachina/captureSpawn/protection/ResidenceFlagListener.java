@@ -1,7 +1,7 @@
 package cn.oneachina.captureSpawn.protection;
 
 import cn.oneachina.captureSpawn.CaptureSpawn;
-import org.bukkit.Bukkit;
+import cn.oneachina.captureSpawn.scheduler.SchedulerFacade;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -11,9 +11,11 @@ import org.bukkit.event.server.ServerCommandEvent;
 
 public final class ResidenceFlagListener implements Listener {
     private final CaptureSpawn plugin;
+    private final SchedulerFacade scheduler;
 
-    public ResidenceFlagListener(CaptureSpawn plugin) {
+    public ResidenceFlagListener(CaptureSpawn plugin, SchedulerFacade scheduler) {
         this.plugin = plugin;
+        this.scheduler = scheduler;
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -24,7 +26,7 @@ public final class ResidenceFlagListener implements Listener {
         if (!event.getPlugin().getName().equalsIgnoreCase("Residence")) {
             return;
         }
-        Bukkit.getScheduler().runTask(plugin, ProtectionHooks::refreshResidenceCustomFlags);
+        scheduler.runGlobal(ProtectionHooks::refreshResidenceCustomFlags);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -36,7 +38,7 @@ public final class ResidenceFlagListener implements Listener {
         if (!isResidenceReload(msg.startsWith("/") ? msg.substring(1) : msg)) {
             return;
         }
-        Bukkit.getScheduler().runTask(plugin, ProtectionHooks::refreshResidenceCustomFlags);
+        scheduler.runGlobal(ProtectionHooks::refreshResidenceCustomFlags);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -47,7 +49,7 @@ public final class ResidenceFlagListener implements Listener {
         if (!isResidenceReload(event.getCommand())) {
             return;
         }
-        Bukkit.getScheduler().runTask(plugin, ProtectionHooks::refreshResidenceCustomFlags);
+        scheduler.runGlobal(ProtectionHooks::refreshResidenceCustomFlags);
     }
 
     private static boolean isResidenceReload(String raw) {

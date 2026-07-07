@@ -9,6 +9,7 @@ import cn.oneachina.captureSpawn.logging.BallLogService;
 import cn.oneachina.captureSpawn.nbt.NbtApiBridge;
 import cn.oneachina.captureSpawn.nbt.NbtPayloadCodec;
 import cn.oneachina.captureSpawn.protection.ProtectionHooks;
+import cn.oneachina.captureSpawn.scheduler.SchedulerFacade;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
@@ -21,7 +22,6 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.scheduler.BukkitRunnable;
 
 public final class BallDropReleaseListener implements Listener {
     private final CaptureSpawn plugin;
@@ -29,13 +29,15 @@ public final class BallDropReleaseListener implements Listener {
     private final ItemFactory itemFactory;
     private final NbtApiBridge nbtBridge;
     private final BallLogService logService;
+    private final SchedulerFacade scheduler;
 
-    public BallDropReleaseListener(CaptureSpawn plugin, BallItemService ballItemService, ItemFactory itemFactory, NbtApiBridge nbtBridge, BallLogService logService) {
+    public BallDropReleaseListener(CaptureSpawn plugin, BallItemService ballItemService, ItemFactory itemFactory, NbtApiBridge nbtBridge, BallLogService logService, SchedulerFacade scheduler) {
         this.plugin = plugin;
         this.ballItemService = ballItemService;
         this.itemFactory = itemFactory;
         this.nbtBridge = nbtBridge;
         this.logService = logService;
+        this.scheduler = scheduler;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -55,81 +57,77 @@ public final class BallDropReleaseListener implements Listener {
         }
 
         int maxWait = Math.max(1, plugin.getConfig().getInt("release.drop.max-wait-ticks", 40));
-        new BukkitRunnable() {
-            int ticks = 0;
-
-            @Override
-            public void run() {
-                ticks++;
-                if (!itemEntity.isValid() || itemEntity.isDead()) {
-                    cancel();
-                    return;
-                }
-                boolean requireOnGround = plugin.getConfig().getBoolean("release.drop.require-on-ground", true);
-                if (requireOnGround && !itemEntity.isOnGround() && ticks < maxWait) {
-                    return;
-                }
-
-                Location base = itemEntity.getLocation();
-                Location safe = findSafeReleaseLocation(base);
-                if (safe == null) {
-                    logService.log(BallLogEntry.of(playerRef(event.getPlayer()), "DROP_RELEASE", data.entityType(), base, "FAIL", "no_safe_location"));
-                    cancel();
-                    return;
-                }
-
-                Player player = event.getPlayer();
-                if (!isReleaseAllowed(player, safe)) {
-                    send(player, "messages.release.spawn-denied", "&c由于权限原因生成失败（检查领地设置是否开启允许自定义怪物生成）。");
-                    logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "DENIED", "protection"));
-                    cancel();
-                    return;
-                }
-
-                EntityType type;
-                try {
-                    type = EntityType.valueOf(data.entityType());
-                } catch (Exception ex) {
-                    logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "FAIL", "invalid_entity_type"));
-                    cancel();
-                    return;
-                }
-
-                Entity spawned;
-                try {
-                    spawned = safe.getWorld().spawnEntity(safe, type);
-                } catch (Exception ex) {
-                    logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "FAIL", "spawn_failed"));
-                    cancel();
-                    return;
-                }
-                if (!spawned.isValid() || spawned.isDead()) {
-                    send(player, "messages.release.spawn-denied", "&c由于权限原因生成失败（检查领地设置是否开启允许自定义怪物生成）。");
-                    logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "DENIED", "spawn_denied"));
-                    cancel();
-                    return;
-                }
-
-                String snbt = NbtPayloadCodec.decodeToSnbt(data.entityNbt());
-                if (nbtBridge.loadFromSnbt(spawned, snbt, player)) {
-                    spawned.remove();
-                    logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "FAIL", "nbt_failed"));
-                    cancel();
-                    return;
-                }
-
-                boolean consume = plugin.getConfig().getBoolean("release.consume-filled", false);
-                if (consume) {
-                    itemEntity.remove();
-                } else {
-                    ItemStack empty = itemFactory.createEmptyBall();
-                    empty.setAmount(stack.getAmount());
-                    itemEntity.setItemStack(empty);
-                }
-                logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "SUCCESS", ""));
-                cancel();
+        final int[] ticks = {0};
+        scheduler.runEntityTimer(itemEntity, 1L, 1L, handle -> {
+            ticks[0]++;
+            if (!itemEntity.isValid() || itemEntity.isDead()) {
+                handle.cancel();
+                return;
             }
-        }.runTaskTimer(plugin, 1L, 1L);
+            boolean requireOnGround = plugin.getConfig().getBoolean("release.drop.require-on-ground", true);
+            if (requireOnGround && !itemEntity.isOnGround() && ticks[0] < maxWait) {
+                return;
+            }
+
+            Location base = itemEntity.getLocation();
+            Location safe = findSafeReleaseLocation(base);
+            if (safe == null) {
+                logService.log(BallLogEntry.of(playerRef(event.getPlayer()), "DROP_RELEASE", data.entityType(), base, "FAIL", "no_safe_location"));
+                handle.cancel();
+                return;
+            }
+
+            Player player = event.getPlayer();
+            if (!isReleaseAllowed(player, safe)) {
+                send(player, "messages.release.spawn-denied", "&c由于权限原因生成失败（检查领地设置是否开启允许自定义怪物生成）。");
+                logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "DENIED", "protection"));
+                handle.cancel();
+                return;
+            }
+
+            EntityType type;
+            try {
+                type = EntityType.valueOf(data.entityType());
+            } catch (Exception ex) {
+                logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "FAIL", "invalid_entity_type"));
+                handle.cancel();
+                return;
+            }
+
+            Entity spawned;
+            try {
+                spawned = safe.getWorld().spawnEntity(safe, type);
+            } catch (Exception ex) {
+                logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "FAIL", "spawn_failed"));
+                handle.cancel();
+                return;
+            }
+            if (!spawned.isValid() || spawned.isDead()) {
+                send(player, "messages.release.spawn-denied", "&c由于权限原因生成失败（检查领地设置是否开启允许自定义怪物生成）。");
+                logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "DENIED", "spawn_denied"));
+                handle.cancel();
+                return;
+            }
+
+            String snbt = NbtPayloadCodec.decodeToSnbt(data.entityNbt());
+            if (nbtBridge.loadFromSnbt(spawned, snbt, player)) {
+                spawned.remove();
+                logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "FAIL", "nbt_failed"));
+                handle.cancel();
+                return;
+            }
+
+            boolean consume = plugin.getConfig().getBoolean("release.consume-filled", false);
+            if (consume) {
+                itemEntity.remove();
+            } else {
+                ItemStack empty = itemFactory.createEmptyBall();
+                empty.setAmount(stack.getAmount());
+                itemEntity.setItemStack(empty);
+            }
+            logService.log(BallLogEntry.of(playerRef(player), "DROP_RELEASE", data.entityType(), safe, "SUCCESS", ""));
+            handle.cancel();
+        });
     }
 
     private Location findSafeReleaseLocation(Location base) {

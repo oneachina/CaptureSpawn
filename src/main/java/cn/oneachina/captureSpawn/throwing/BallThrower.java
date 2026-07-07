@@ -11,6 +11,7 @@ import cn.oneachina.captureSpawn.nbt.NbtApiBridge;
 import cn.oneachina.captureSpawn.nbt.NbtPayloadCodec;
 import cn.oneachina.captureSpawn.protection.OwnerUtil;
 import cn.oneachina.captureSpawn.protection.ProtectionHooks;
+import cn.oneachina.captureSpawn.scheduler.SchedulerFacade;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.FluidCollisionMode;
@@ -30,7 +31,6 @@ import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
@@ -52,6 +52,7 @@ public final class BallThrower {
     private final NbtApiBridge nbtBridge;
     private final EntityInfoFormatter formatter;
     private final BallLogService logService;
+    private final SchedulerFacade scheduler;
     private final Map<UUID, Long> lastTriggerAt = new ConcurrentHashMap<>();
     private final Map<UUID, Long> cooldownUntil = new ConcurrentHashMap<>();
 
@@ -61,7 +62,8 @@ public final class BallThrower {
             ItemFactory itemFactory,
             NbtApiBridge nbtBridge,
             EntityInfoFormatter formatter,
-            BallLogService logService
+            BallLogService logService,
+            SchedulerFacade scheduler
     ) {
         this.plugin = plugin;
         this.ballItemService = ballItemService;
@@ -69,6 +71,7 @@ public final class BallThrower {
         this.nbtBridge = nbtBridge;
         this.formatter = formatter;
         this.logService = logService;
+        this.scheduler = scheduler;
     }
 
     public void throwFromMainHand(Player player, EquipmentSlot hand) {
@@ -151,67 +154,64 @@ public final class BallThrower {
         int maxBounces = Math.max(0, plugin.getConfig().getInt("throw.physics.bounce.max-bounces", 3));
         double minBounceSpeed = Math.max(0.01, plugin.getConfig().getDouble("throw.physics.bounce.min-speed", 0.25));
 
-        new BukkitRunnable() {
-            float angle = 0f;
-            int lifeTicks = 0;
-            int bounceCount = 0;
-            boolean rolling = false;
-            int rollTicks = 0;
+        final float[] angle = {0f};
+        final int[] lifeTicks = {0};
+        final int[] bounceCount = {0};
+        final boolean[] rolling = {false};
+        final int[] rollTicks = {0};
+        scheduler.runEntityTimer(display, 1L, 1L, handle -> {
+            lifeTicks[0]++;
+            if (!display.isValid() || display.isDead()) {
+                handle.cancel();
+                return;
+            }
 
-            @Override
-            public void run() {
-                lifeTicks++;
-                if (!display.isValid() || display.isDead()) {
-                    cancel();
-                    return;
-                }
+            if (lifeTicks[0] >= maxLife) {
+                onTimeout(player, originalBall, display.getLocation());
+                display.remove();
+                handle.cancel();
+                return;
+            }
 
-                if (lifeTicks >= maxLife) {
-                    onTimeout(player, originalBall, display.getLocation());
-                    display.remove();
-                    cancel();
-                    return;
-                }
-
-                Location current = display.getLocation();
-                if (rolling) {
-                    Vector horizontal = velocity[0].clone();
-                    horizontal.setY(0);
-                    if (horizontal.lengthSquared() < 0.0004 || rollTicks <= 0) {
-                        onImpactGround(player, data, originalBall, current, null, null);
-                        display.remove();
-                        cancel();
-                        return;
-                    }
-                    Location next = current.add(horizontal);
-                    display.teleport(snapAboveGround(next));
-                    horizontal.multiply(rollDamping);
-                    velocity[0] = horizontal;
-                    rollTicks--;
-                    angle += 14.0f;
-                    Quaternionf left = new Quaternionf()
-                            .rotateX((float) Math.toRadians(90.0))
-                            .rotateY((float) Math.toRadians(angle));
-                    display.setTransformation(new Transformation(
-                            new Vector3f(0f, 0f, 0f),
-                            left,
-                            new Vector3f(0.75f, 0.75f, 0.75f),
-                            new Quaternionf()
-                    ));
-                    if (plugin.getConfig().getBoolean("throw.trail.enabled", true)) {
-                        display.getWorld().spawnParticle(Particle.CRIT, display.getLocation(), 1, 0.01, 0.01, 0.01, 0.0);
-                    }
-                    return;
-                }
-
-                Vector stepVec = velocity[0].clone();
-                double stepLen = stepVec.length();
-                if (stepLen < 0.001) {
+            Location current = display.getLocation();
+            if (rolling[0]) {
+                Vector horizontal = velocity[0].clone();
+                horizontal.setY(0);
+                if (horizontal.lengthSquared() < 0.0004 || rollTicks[0] <= 0) {
                     onImpactGround(player, data, originalBall, current, null, null);
                     display.remove();
-                    cancel();
+                    handle.cancel();
                     return;
                 }
+                Location next = current.add(horizontal);
+                display.teleport(snapAboveGround(next));
+                horizontal.multiply(rollDamping);
+                velocity[0] = horizontal;
+                rollTicks[0]--;
+                angle[0] += 14.0f;
+                Quaternionf left = new Quaternionf()
+                        .rotateX((float) Math.toRadians(90.0))
+                        .rotateY((float) Math.toRadians(angle[0]));
+                display.setTransformation(new Transformation(
+                        new Vector3f(0f, 0f, 0f),
+                        left,
+                        new Vector3f(0.75f, 0.75f, 0.75f),
+                        new Quaternionf()
+                ));
+                if (plugin.getConfig().getBoolean("throw.trail.enabled", true)) {
+                    display.getWorld().spawnParticle(Particle.CRIT, display.getLocation(), 1, 0.01, 0.01, 0.01, 0.0);
+                }
+                return;
+            }
+
+            Vector stepVec = velocity[0].clone();
+            double stepLen = stepVec.length();
+            if (stepLen < 0.001) {
+                onImpactGround(player, data, originalBall, current, null, null);
+                display.remove();
+                handle.cancel();
+                return;
+            }
 
                 RayTraceResult entityHit = current.getWorld().rayTraceEntities(
                         current,
@@ -231,98 +231,97 @@ public final class BallThrower {
                 double entDist = hitDistance(current, entityHit);
                 double blkDist = hitDistance(current, blockHit);
 
-                if (entDist <= blkDist && entityHit != null && entityHit.getHitEntity() != null) {
-                    onImpactEntity(player, data, originalBall, entityHit.getHitEntity(), toHitLocation(current, entityHit));
-                    display.remove();
-                    cancel();
-                    return;
-                }
+            if (entDist <= blkDist && entityHit != null && entityHit.getHitEntity() != null) {
+                onImpactEntity(player, data, originalBall, entityHit.getHitEntity(), toHitLocation(current, entityHit));
+                display.remove();
+                handle.cancel();
+                return;
+            }
 
-                if (blockHit != null && blockHit.getHitBlock() != null) {
-                    Location hitLoc = toHitLocation(current, blockHit);
-                    BlockFace face = blockHit.getHitBlockFace();
-                    if (bounceEnabled && face != null && bounceCount < maxBounces) {
-                        Vector normal = face.getDirection().clone();
-                        if (normal.lengthSquared() < 0.5) {
-                            normal = new Vector(0, 1, 0);
-                        }
-                        normal.normalize();
-                        Vector v = velocity[0].clone();
-                        double vnMag = v.dot(normal);
-                        Vector vn = normal.clone().multiply(vnMag);
-                        Vector vt = v.clone().subtract(vn);
-                        vt.multiply(1.0 - surfaceFriction);
-                        vn.multiply(-restitution);
-                        Vector newVel = vt.add(vn);
-                        bounceCount++;
-                        velocity[0] = newVel;
-                        Location bumped = hitLoc.clone().add(normal.multiply(0.07)).add(0, 0.04, 0);
-                        display.teleport(snapAboveGround(bumped));
-                        current.getWorld().playSound(hitLoc, Sound.BLOCK_AMETHYST_BLOCK_HIT, 0.35f, 1.4f);
+            if (blockHit != null && blockHit.getHitBlock() != null) {
+                Location hitLoc = toHitLocation(current, blockHit);
+                BlockFace face = blockHit.getHitBlockFace();
+                if (bounceEnabled && face != null && bounceCount[0] < maxBounces) {
+                    Vector normal = face.getDirection().clone();
+                    if (normal.lengthSquared() < 0.5) {
+                        normal = new Vector(0, 1, 0);
+                    }
+                    normal.normalize();
+                    Vector v = velocity[0].clone();
+                    double vnMag = v.dot(normal);
+                    Vector vn = normal.clone().multiply(vnMag);
+                    Vector vt = v.clone().subtract(vn);
+                    vt.multiply(1.0 - surfaceFriction);
+                    vn.multiply(-restitution);
+                    Vector newVel = vt.add(vn);
+                    bounceCount[0]++;
+                    velocity[0] = newVel;
+                    Location bumped = hitLoc.clone().add(normal.multiply(0.07)).add(0, 0.04, 0);
+                    display.teleport(snapAboveGround(bumped));
+                    current.getWorld().playSound(hitLoc, Sound.BLOCK_AMETHYST_BLOCK_HIT, 0.35f, 1.4f);
 
-                        double remainingRatio = clamp((stepLen - blkDist) / Math.max(0.0001, stepLen), 0.0);
-                        if (remainingRatio > 0.01) {
-                            Location after = display.getLocation().clone().add(newVel.clone().multiply(remainingRatio));
-                            display.teleport(snapAboveGround(after));
-                        }
+                    double remainingRatio = clamp((stepLen - blkDist) / Math.max(0.0001, stepLen), 0.0);
+                    if (remainingRatio > 0.01) {
+                        Location after = display.getLocation().clone().add(newVel.clone().multiply(remainingRatio));
+                        display.teleport(snapAboveGround(after));
+                    }
 
-                        if (newVel.length() < minBounceSpeed) {
-                            if (rollEnabled) {
-                                Vector tangent = newVel.clone();
-                                tangent.setY(0);
-                                if (tangent.lengthSquared() > 0.0002) {
-                                    rolling = true;
-                                    rollTicks = rollTicksDefault;
-                                    velocity[0] = tangent.normalize().multiply(rollInitialScale);
-                                    current.getWorld().playSound(hitLoc, Sound.BLOCK_CALCITE_HIT, 0.35f, 1.2f);
-                                    return;
-                                }
-                            }
-                            onImpactGround(player, data, originalBall, hitLoc, blockHit.getHitBlock(), face);
-                            display.remove();
-                            cancel();
-                            return;
-                        }
-                    } else {
+                    if (newVel.length() < minBounceSpeed) {
                         if (rollEnabled) {
-                            Vector normal = face == null ? new Vector(0, 1, 0) : face.getDirection();
-                            Vector tangent = velocity[0].clone().subtract(normal.multiply(velocity[0].dot(normal)));
+                            Vector tangent = newVel.clone();
                             tangent.setY(0);
-                            if (tangent.lengthSquared() > 0.0005) {
-                                rolling = true;
-                                rollTicks = rollTicksDefault;
-                                velocity[0] = tangent.multiply(rollInitialScale);
-                                display.teleport(snapAboveGround(hitLoc.clone().add(0, 0.03, 0)));
+                            if (tangent.lengthSquared() > 0.0002) {
+                                rolling[0] = true;
+                                rollTicks[0] = rollTicksDefault;
+                                velocity[0] = tangent.normalize().multiply(rollInitialScale);
                                 current.getWorld().playSound(hitLoc, Sound.BLOCK_CALCITE_HIT, 0.35f, 1.2f);
                                 return;
                             }
                         }
                         onImpactGround(player, data, originalBall, hitLoc, blockHit.getHitBlock(), face);
                         display.remove();
-                        cancel();
+                        handle.cancel();
+                        return;
                     }
-                    return;
+                } else {
+                    if (rollEnabled) {
+                        Vector normal = face == null ? new Vector(0, 1, 0) : face.getDirection();
+                        Vector tangent = velocity[0].clone().subtract(normal.multiply(velocity[0].dot(normal)));
+                        tangent.setY(0);
+                        if (tangent.lengthSquared() > 0.0005) {
+                            rolling[0] = true;
+                            rollTicks[0] = rollTicksDefault;
+                            velocity[0] = tangent.multiply(rollInitialScale);
+                            display.teleport(snapAboveGround(hitLoc.clone().add(0, 0.03, 0)));
+                            current.getWorld().playSound(hitLoc, Sound.BLOCK_CALCITE_HIT, 0.35f, 1.2f);
+                            return;
+                        }
+                    }
+                    onImpactGround(player, data, originalBall, hitLoc, blockHit.getHitBlock(), face);
+                    display.remove();
+                    handle.cancel();
                 }
-
-                display.teleport(current.add(velocity[0]));
-                angle += 22.5f;
-                Quaternionf left = new Quaternionf()
-                        .rotateX((float) Math.toRadians(20.0))
-                        .rotateY((float) Math.toRadians(angle));
-                display.setTransformation(new Transformation(
-                        new Vector3f(0f, 0f, 0f),
-                        left,
-                        new Vector3f(0.75f, 0.75f, 0.75f),
-                        new Quaternionf()
-                ));
-
-                if (plugin.getConfig().getBoolean("throw.trail.enabled", true)) {
-                    display.getWorld().spawnParticle(Particle.END_ROD, display.getLocation(), 1, 0.01, 0.01, 0.01, 0);
-                }
-                velocity[0].multiply(airDrag);
-                velocity[0].setY(velocity[0].getY() - gravity);
+                return;
             }
-        }.runTaskTimer(plugin, 1L, 1L);
+
+            display.teleport(current.add(velocity[0]));
+            angle[0] += 22.5f;
+            Quaternionf left = new Quaternionf()
+                    .rotateX((float) Math.toRadians(20.0))
+                    .rotateY((float) Math.toRadians(angle[0]));
+            display.setTransformation(new Transformation(
+                    new Vector3f(0f, 0f, 0f),
+                    left,
+                    new Vector3f(0.75f, 0.75f, 0.75f),
+                    new Quaternionf()
+            ));
+
+            if (plugin.getConfig().getBoolean("throw.trail.enabled", true)) {
+                display.getWorld().spawnParticle(Particle.END_ROD, display.getLocation(), 1, 0.01, 0.01, 0.01, 0);
+            }
+            velocity[0].multiply(airDrag);
+            velocity[0].setY(velocity[0].getY() - gravity);
+        });
 
         player.getWorld().playSound(player.getLocation(), Sound.ENTITY_SNOWBALL_THROW, 0.6f, 1.0f);
     }
@@ -361,61 +360,57 @@ public final class BallThrower {
         }
 
         int captureAnimTicks = Math.max(1, plugin.getConfig().getInt("throw.capture-animation-ticks", 6));
-        new BukkitRunnable() {
-            int ticks = 0;
-
-            @Override
-            public void run() {
-                ticks++;
-                if (!living.isValid() || living.isDead()) {
-                    returnBall(player, originalBall, hitLoc);
-                    cancel();
-                    return;
-                }
-                if (plugin.getConfig().getBoolean("throw.impact.enabled", true)) {
-                    living.getWorld().spawnParticle(Particle.WITCH, living.getLocation().add(0, 0.8, 0), 8, 0.25, 0.3, 0.25, 0.01);
-                }
-                if (ticks < captureAnimTicks) {
-                    return;
-                }
-
-                String snbt = nbtBridge.saveToSnbt(living, player);
-                if (snbt == null || snbt.isBlank()) {
-                    returnBall(player, originalBall, hitLoc);
-                    logService.log(BallLogEntry.of(playerRef(player), "CAPTURE", living.getType().name(), hitLoc, "FAIL", "save_nbt_failed"));
-                    cancel();
-                    return;
-                }
-                String format = plugin.getConfig().getString("storage.nbt-format", "GZIP_BASE64");
-                String payload = NbtPayloadCodec.encode(snbt, format);
-                int maxBytes = Math.max(1024, plugin.getConfig().getInt("storage.max-bytes", 131072));
-                int bytes = payload == null ? 0 : payload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-                if (bytes > maxBytes) {
-                    returnBall(player, originalBall, hitLoc);
-                    String msg = plugin.getConfig().getString("messages.capture.too-large", "&c捕捉失败：数据过大。");
-                    if (!msg.isBlank() && player.isOnline()) {
-                        player.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
-                    }
-                    logService.log(BallLogEntry.of(playerRef(player), "CAPTURE", living.getType().name(), hitLoc, "FAIL", "too_large"));
-                    cancel();
-                    return;
-                }
-
-                BallData filledData = new BallData(true, living.getType().name(), payload);
-                ItemStack filledBall = itemFactory.createFilledBall(
-                        formatter.displayName(living),
-                        formatter.extraLoreLines(living),
-                        filledData
-                );
-                living.remove();
-                returnBall(player, filledBall, hitLoc);
-                if (plugin.getConfig().getBoolean("throw.impact.enabled", true)) {
-                    hitLoc.getWorld().spawnParticle(Particle.TOTEM_OF_UNDYING, hitLoc.clone().add(0, 0.5, 0), 12, 0.2, 0.25, 0.2, 0.01);
-                }
-                logService.log(BallLogEntry.of(playerRef(player), "CAPTURE", filledData.entityType(), hitLoc, "SUCCESS", ""));
-                cancel();
+        final int[] ticks = {0};
+        scheduler.runEntityTimer(living, 0L, 1L, handle -> {
+            ticks[0]++;
+            if (!living.isValid() || living.isDead()) {
+                returnBall(player, originalBall, hitLoc);
+                handle.cancel();
+                return;
             }
-        }.runTaskTimer(plugin, 0L, 1L);
+            if (plugin.getConfig().getBoolean("throw.impact.enabled", true)) {
+                living.getWorld().spawnParticle(Particle.WITCH, living.getLocation().add(0, 0.8, 0), 8, 0.25, 0.3, 0.25, 0.01);
+            }
+            if (ticks[0] < captureAnimTicks) {
+                return;
+            }
+
+            String snbt = nbtBridge.saveToSnbt(living, player);
+            if (snbt == null || snbt.isBlank()) {
+                returnBall(player, originalBall, hitLoc);
+                logService.log(BallLogEntry.of(playerRef(player), "CAPTURE", living.getType().name(), hitLoc, "FAIL", "save_nbt_failed"));
+                handle.cancel();
+                return;
+            }
+            String format = plugin.getConfig().getString("storage.nbt-format", "GZIP_BASE64");
+            String payload = NbtPayloadCodec.encode(snbt, format);
+            int maxBytes = Math.max(1024, plugin.getConfig().getInt("storage.max-bytes", 131072));
+            int bytes = payload == null ? 0 : payload.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            if (bytes > maxBytes) {
+                returnBall(player, originalBall, hitLoc);
+                String msg = plugin.getConfig().getString("messages.capture.too-large", "&c捕捉失败：数据过大。");
+                if (!msg.isBlank() && player.isOnline()) {
+                    player.sendMessage(ChatColor.translateAlternateColorCodes('&', msg));
+                }
+                logService.log(BallLogEntry.of(playerRef(player), "CAPTURE", living.getType().name(), hitLoc, "FAIL", "too_large"));
+                handle.cancel();
+                return;
+            }
+
+            BallData filledData = new BallData(true, living.getType().name(), payload);
+            ItemStack filledBall = itemFactory.createFilledBall(
+                    formatter.displayName(living),
+                    formatter.extraLoreLines(living),
+                    filledData
+            );
+            living.remove();
+            returnBall(player, filledBall, hitLoc);
+            if (plugin.getConfig().getBoolean("throw.impact.enabled", true)) {
+                hitLoc.getWorld().spawnParticle(Particle.TOTEM_OF_UNDYING, hitLoc.clone().add(0, 0.5, 0), 12, 0.2, 0.25, 0.2, 0.01);
+            }
+            logService.log(BallLogEntry.of(playerRef(player), "CAPTURE", filledData.entityType(), hitLoc, "SUCCESS", ""));
+            handle.cancel();
+        });
     }
 
     private void onImpactGround(Player player, BallData data, ItemStack originalBall, Location hitLoc, Block hitBlock, BlockFace hitFace) {

@@ -8,7 +8,7 @@ import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientIn
 import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientUseItem;
 import cn.oneachina.captureSpawn.CaptureSpawn;
 import cn.oneachina.captureSpawn.item.BallItemService;
-import org.bukkit.Bukkit;
+import cn.oneachina.captureSpawn.scheduler.SchedulerFacade;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
@@ -17,11 +17,13 @@ public final class PacketEventsThrowListener extends PacketListenerAbstract {
     private final CaptureSpawn plugin;
     private final BallThrower thrower;
     private final BallItemService ballItemService;
+    private final SchedulerFacade scheduler;
 
-    public PacketEventsThrowListener(CaptureSpawn plugin, BallThrower thrower, BallItemService ballItemService) {
+    public PacketEventsThrowListener(CaptureSpawn plugin, BallThrower thrower, BallItemService ballItemService, SchedulerFacade scheduler) {
         this.plugin = plugin;
         this.thrower = thrower;
         this.ballItemService = ballItemService;
+        this.scheduler = scheduler;
     }
 
     @Override
@@ -39,9 +41,7 @@ public final class PacketEventsThrowListener extends PacketListenerAbstract {
             if (ballItemService.isBall(hand)) {
                 event.setCancelled(true);
             }
-            Bukkit.getScheduler().runTask(plugin, () -> {
-                thrower.throwFromMainHand(player, EquipmentSlot.HAND);
-            });
+            scheduler.runOnEntity(player, () -> thrower.throwFromMainHand(player, EquipmentSlot.HAND));
             return;
         }
 
