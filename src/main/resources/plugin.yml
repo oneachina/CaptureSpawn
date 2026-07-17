@@ -1,5 +1,5 @@
 name: CaptureSpawn
-version: '0.2.3'
+version: '0.2.4'
 main: cn.oneachina.captureSpawn.CaptureSpawn
 api-version: '1.21'
 folia-supported: true

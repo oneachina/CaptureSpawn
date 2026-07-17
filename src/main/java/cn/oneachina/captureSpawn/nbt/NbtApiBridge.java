@@ -81,7 +81,6 @@ public final class NbtApiBridge {
         for (String key : removeKeys) {
             compoundTag.removeKey(key);
         }
-        compoundTag.setBoolean("CanPickUpLoot", false);
     }
 
     private void stripNaturalEquipment(ReadWriteNBT entityNbt) {
